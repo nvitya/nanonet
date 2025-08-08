@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectOptions>
+    <Version Value="12"/>
+    <General>
+      <Flags>
+        <MainUnitHasCreateFormStatements Value="False"/>
+        <MainUnitHasTitleStatement Value="False"/>
+        <MainUnitHasScaledStatement Value="False"/>
+      </Flags>
+      <SessionStorage Value="InProjectDir"/>
+      <Title Value="http_sessions"/>
+      <UseAppBundle Value="False"/>
+      <ResourceType Value="res"/>
+    </General>
+    <BuildModes>
+      <Item Name="Default" Default="True"/>
+      <Item Name="RV64">
+        <CompilerOptions>
+          <Version Value="11"/>
+          <Target>
+            <Filename Value="http_sessions"/>
+          </Target>
+          <SearchPaths>
+            <IncludeFiles Value="$(ProjOutDir)"/>
+            <OtherUnitFiles Value="../../nanonet"/>
+            <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+          </SearchPaths>
+          <CodeGeneration>
+            <TargetCPU Value="riscv64"/>
+            <TargetOS Value="linux"/>
+            <Optimizations>
+              <OptimizationLevel Value="3"/>
+            </Optimizations>
+          </CodeGeneration>
+          <Other>
+            <CompilerMessages>
+              <IgnoredMessages idx6058="True" idx5028="True" idx5024="True" idx3124="True" idx3123="True"/>
+            </CompilerMessages>
+          </Other>
+        </CompilerOptions>
+      </Item>
+    </BuildModes>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+    <RunParams>
+      <FormatVersion Value="2"/>
+    </RunParams>
+    <Units>
+      <Unit>
+        <Filename Value="http_sessions.lpr"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="../../nanonet/nano_http.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="../../nanonet/nano_sessions.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+    </Units>
+    <Debugger>
+      <ClassConfig Version="1">
+        <Config ConfigName="RV64-140" ConfigClass="TGDBMIServerDebugger" DebuggerFilename="gdb-multiarch" UID="{DCD55FB5-325E-4EDF-9BC6-428B05723AD9}">
+          <Properties Debugger_Remote_Hostname="192.168.0.140" Debugger_Target_Mode="dtTargetExtendedRemote" Architecture="riscv64">
+            <EventProperties>
+              <AfterConnect Text="remote put $OutputFile() $NameOnly($OutputFile())
+set remote exec-file $NameOnly($OutputFile())
+starti
+"/>
+            </EventProperties>
+          </Properties>
+        </Config>
+        <Config ConfigName="RV64-49" ConfigClass="TGDBMIServerDebugger" DebuggerFilename="gdb-multiarch" UID="{65217FA8-855E-44D4-B31D-35D88AB02706}">
+          <Properties Debugger_Remote_Hostname="192.168.0.49" Debugger_Target_Mode="dtTargetExtendedRemote" Architecture="riscv64">
+            <EventProperties>
+              <AfterConnect Text="remote put $OutputFile() $NameOnly($OutputFile())
+set remote exec-file $NameOnly($OutputFile())
+starti
+"/>
+            </EventProperties>
+          </Properties>
+        </Config>
+        <Config ConfigName="Local" ConfigClass="TFpDebugDebugger" Active="True" UID="{47FB9B7A-A00B-4708-A484-02C51A43D6FE}"/>
+      </ClassConfig>
+    </Debugger>
+  </ProjectOptions>
+  <CompilerOptions>
+    <Version Value="11"/>
+    <Target>
+      <Filename Value="http_sessions"/>
+    </Target>
+    <SearchPaths>
+      <IncludeFiles Value="$(ProjOutDir)"/>
+      <OtherUnitFiles Value="../../nanonet;../../extlib"/>
+      <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+    </SearchPaths>
+    <CodeGeneration>
+      <Optimizations>
+        <OptimizationLevel Value="0"/>
+      </Optimizations>
+    </CodeGeneration>
+    <Linking>
+      <Debugging>
+        <DebugInfoType Value="dsDwarf3"/>
+      </Debugging>
+    </Linking>
+    <Other>
+      <CompilerMessages>
+        <IgnoredMessages idx6058="True" idx5028="True" idx5024="True" idx3124="True" idx3123="True"/>
+      </CompilerMessages>
+    </Other>
+  </CompilerOptions>
+  <Debugging>
+    <Exceptions>
+      <Item>
+        <Name Value="EAbort"/>
+      </Item>
+      <Item>
+        <Name Value="ECodetoolError"/>
+      </Item>
+      <Item>
+        <Name Value="EFOpenError"/>
+      </Item>
+    </Exceptions>
+  </Debugging>
+</CONFIG>

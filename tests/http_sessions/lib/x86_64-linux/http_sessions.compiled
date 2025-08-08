@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Compiler Value="/usr/bin/fpc" Date="1625802185"/>
+  <Params Value="-MObjFPC -Scghi -Cg -gw3 -gl -l -vewnhibq -vm6058,5028,5024,3124,3123 -Fi/lindata/homesvn/pascal/nanonet/tests/http_sessions/lib/x86_64-linux -Fu/lindata/homesvn/pascal/nanonet/tests/http_sessions/ -Fu/lindata/homesvn/pascal/nanonet/nanonet -Fu/lindata/homesvn/pascal/nanonet/extlib -FU/lindata/homesvn/pascal/nanonet/tests/http_sessions/lib/x86_64-linux/ -FE/lindata/homesvn/pascal/nanonet/tests/http_sessions/ -o/lindata/homesvn/pascal/nanonet/tests/http_sessions/http_sessions http_sessions.lpr"/>
+</CONFIG>

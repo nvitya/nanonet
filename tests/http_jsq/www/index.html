@@ -1,0 +1,67 @@
+<html>
+
+<head>
+  <title>NanoNet JS Query Example</title>
+</head>
+
+<body>
+
+<h1>NanoNet JS Query Example</h1>
+<hr>
+<div id="DIV_COUNTER"></div>
+<div id="DIV_STATUS"></div>
+
+<body>
+
+<script type="text/javascript" src="jstools/dc.js"></script>
+<script type="text/javascript" src="jstools/jstools.js"></script>
+
+<script type="text/javascript">
+
+var counter_query_interval = 500;
+var cnt_timer = setTimeout(QueryCounter, counter_query_interval);
+
+function QueryCounter()
+{
+  var div = dc_get('DIV_COUNTER');
+  //dc_replace(div, dc_text('Loading data...'))
+
+  AsyncJsQuery(HandleData, '/data/counter', '');
+
+  function HandleData(jsq)
+  {
+    if (jsq.error)
+    {
+      dc_replace(div, dc_text('JSQ error '+jsq.error+': '+jsq.errormsg))
+      return;
+    }
+
+    dc_replace(div, dc_text('Counter: '+jsq.data.counter))
+    cnt_timer = setTimeout(QueryCounter, counter_query_interval);
+  }
+}
+
+function QueryStatus()
+{
+  var div = dc_get('DIV_STATUS');
+  dc_replace(div, dc_text('Loading data...'))
+
+  AsyncJsQuery(HandleData, '/data/status', '');
+
+  function HandleData(jsq)
+  {
+    if (jsq.error)
+    {
+      dc_replace(div, dc_text('JSQ error '+jsq.error+': '+jsq.errormsg))
+      return;
+    }
+
+    dc_replace(div, dc_text('Status: '+jsq.data.status))
+  }
+}
+
+QueryStatus();
+
+</script>
+
+</html>
