@@ -680,6 +680,7 @@ begin
 
   ct_by_ext.Add('html', 'text/html');
   ct_by_ext.Add('htm',  'text/html');
+  ct_by_ext.Add('css',  'text/css');
   ct_by_ext.Add('js',   'text/javascript');
 
   ct_by_ext.Add('jpg',  'image/jpeg');
