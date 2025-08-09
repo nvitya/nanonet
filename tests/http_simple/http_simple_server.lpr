@@ -48,17 +48,17 @@ begin
       +'getstr="'+getstr+'"'#13#10
     ;
 
-    for i := 0 to getvars.count - 1 do
+    for i := 0 to qsvars.count - 1 do
     begin
-      k := getvars.Keys[i];
-      v := getvars.Data[i];
+      k := qsvars.Keys[i];
+      v := qsvars.Data[i];
       response += 'GetVar: "'+k+'" = "'+v+'"'#13#10;
     end;
 
-    v := getvars.KeyDataDef('a', '');
+    v := QsVarStr('a', '', 32);  // limit the variable length to defend against SQL injections
     if v <> '' then response += 'Get var "a" is set to "'+v+'"'#13#10;
 
-    v := getvars.KeyDataDef('c', '');
+    v := QsVarStr('c', '', 32);
     if v <> '' then response += 'Get var "c" is set to "'+v+'"'#13#10
                else response += 'Get var "c" is not set.'#13#10;
 

@@ -85,7 +85,7 @@ type
   public
 
     ucheaders  : TAnsiStrMap;  // UpperCase request headers
-    getvars    : TAnsiStrMap;
+    qsvars     : TAnsiStrMap;
     cookies    : TAnsiStrMap;
 
     response : ansistring;
@@ -94,6 +94,9 @@ type
 
     constructor Create(aserver : TNanoServer); override;
     destructor Destroy; override;
+
+    function QsVarInt(aname : ansistring; adefvalue : integer) : integer;
+    function QsVarStr(aname : ansistring; adefvalue : ansistring; amaxlen : integer) : ansistring;
 
     procedure HandleInput(aobj : TObject); override;
     procedure HandleOutput(aobj : TObject); override;
@@ -217,7 +220,7 @@ begin
 
   ucheaders := TAnsiStrMap.Create;
   response_headers := TAnsiStrMap.Create;
-  getvars := TAnsiStrMap.Create;
+  qsvars := TAnsiStrMap.Create;
   cookies := TAnsiStrMap.Create;
 
   header_length := 0;
@@ -233,9 +236,20 @@ begin
   CloseFileFd();
   ucheaders.Free;
   response_headers.Free;
-  getvars.Free;
+  qsvars.Free;
   cookies.Free;
   inherited Destroy;
+end;
+
+function TSConnHttp.QsVarInt(aname : ansistring; adefvalue : integer) : integer;
+begin
+  result := StrToIntDef(qsvars.KeyDataDef(aname, ''), adefvalue);
+end;
+
+function TSConnHttp.QsVarStr(aname : ansistring; adefvalue : ansistring; amaxlen : integer) : ansistring;
+begin
+  result := qsvars.KeyDataDef(aname, adefvalue);
+  if amaxlen > 0 then result := copy(result, 1, amaxlen);
 end;
 
 procedure TSConnHttp.HandleInput(aobj : TObject);
@@ -341,7 +355,7 @@ begin
   uri := '';
   keep_alive := false;
   ucheaders.Clear;
-  getvars.Clear;
+  qsvars.Clear;
   cookies.Clear;
 
   // "GET /index.html HTTP/1.1"
@@ -502,7 +516,7 @@ begin
     end;
     if k <> '' then
     begin
-      getvars[k] := v;
+      qsvars[k] := v;
     end;
   end;
 end;
