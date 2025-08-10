@@ -55,6 +55,8 @@ type
 
     procedure SetError(acode : integer; amsg : string);
 
+    procedure ReturnJson(sconn : TSConnHttp);
+    procedure ReturnError(sconn : TSConnHttp; acode : integer; amsg : string);
     procedure ReturnSqlData(sconn : TSConnHttp; asql : string);
   end;
 
@@ -91,6 +93,18 @@ procedure TNanoJsq.SetError(acode : integer; amsg : string);
 begin
   jroot.Add('error', acode);
   jroot.Add('errormsg', amsg);
+end;
+
+procedure TNanoJsq.ReturnJson(sconn : TSConnHttp);
+begin
+  sconn.response := jroot.AsJson;
+  if not keep_last_sql_result then Reset; // frees the JSON data
+end;
+
+procedure TNanoJsq.ReturnError(sconn : TSConnHttp; acode : integer; amsg : string);
+begin
+  SetError(acode, amsg);
+  ReturnJson(sconn);
 end;
 
 procedure TNanoJsq.ReturnSqlData(sconn : TSConnHttp; asql : string);
@@ -158,9 +172,7 @@ begin
     end;
   end;
 
-  sconn.response := jroot.AsJson;
-
-  if not keep_last_sql_result then Reset; // frees the JSON data
+  ReturnJson(sconn);
 end;
 
 end.
