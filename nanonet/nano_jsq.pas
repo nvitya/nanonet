@@ -57,6 +57,7 @@ type
 
     procedure ReturnJson(sconn : TSConnHttp);
     procedure ReturnError(sconn : TSConnHttp; acode : integer; amsg : string);
+
     procedure ReturnSqlData(sconn : TSConnHttp; asql : string);
   end;
 
@@ -106,6 +107,10 @@ begin
   SetError(acode, amsg);
   ReturnJson(sconn);
 end;
+
+{$if 0}
+
+// slow version using JsonTools
 
 procedure TNanoJsq.ReturnSqlData(sconn : TSConnHttp; asql : string);
 var
@@ -174,6 +179,123 @@ begin
 
   ReturnJson(sconn);
 end;
+
+{$else}
+
+// fast version with direct string fill and reduced re-allocation
+
+procedure TNanoJsq.ReturnSqlData(sconn : TSConnHttp; asql : string);
+var
+  rowsep : ansistring;
+  fsep : ansistring;
+  filled : integer = 0;
+  allocated : integer;
+  strvalue : ansistring;
+
+  f : TField;
+  fi : integer;
+
+  procedure AddToResponse(astr : ansistring);
+  var
+    slen : integer;
+  begin
+    slen := length(astr);
+    if slen < 0 then EXIT;
+
+    while slen + filled > allocated do
+    begin
+      allocated := allocated * 2;
+      SetLength(sconn.response, allocated);
+    end;
+
+    move(astr[1], sconn.response[filled+1], slen);
+    filled += slen;
+  end;
+
+begin
+  Reset;
+
+  sconn.response := '{"error":0,"errormsg":"","fieldnames":[';
+
+  try
+    sqlq.SQL.Text := asql;
+    sqlq.Open;
+    if not sqlq.EOF then
+    begin
+      for fi := 0 to sqlq.FieldCount - 1 do
+      begin
+        if fi > 0 then sconn.response += ',';
+        sconn.response += '"'+sqlq.Fields[fi].FieldName+'"';
+      end;
+    end;
+
+    sconn.response += '],"data":[';
+
+    filled := length(sconn.response);
+    allocated := 256 * 1024;
+    SetLength(sconn.response, allocated);
+
+    rowsep := '';
+    while not sqlq.EOF do
+    begin
+      AddToResponse(rowsep + '[');
+      fsep := '';
+      for fi := 0 to sqlq.FieldCount - 1 do
+      begin
+        f := sqlq.Fields[fi];
+        if f.DataType in [ftInteger, ftSmallInt, ftWord, ftAutoInc, ftLargeInt] then
+        begin
+          strvalue := sqlq.Fields[fi].AsString;
+        end
+        else if f.DataType = ftDateTime then
+        begin
+          strvalue := '"' + FormatDateTime('yyyy-mm-dd hh:nn:ss', sqlq.Fields[fi].AsDateTime) + '"';
+        end
+        else if f.DataType = ftBoolean then
+        begin
+          strvalue := sqlq.Fields[fi].AsString;
+        end
+        else if f.DataType in [ftFloat, ftCurrency, ftBCD] then
+        begin
+          strvalue := sqlq.Fields[fi].AsString;
+        end
+        else  // fallback to string
+        begin
+          strvalue := '"' + StringReplace(sqlq.Fields[fi].AsString, '"', '\"', [rfReplaceAll]) + '"';
+        end;
+        AddToResponse(fsep + strvalue);
+        fsep := ',';
+      end;
+
+      AddToResponse(']');
+      rowsep := ',';
+
+      sqlq.Next;
+    end;
+    sqlq.Close;
+
+    // close the data block
+    AddToResponse(']}');
+
+    // cut back to the real length
+    SetLength(sconn.response, filled);
+
+  except
+    on e : Exception do
+    begin
+      sqlq.Active := false;
+
+      jroot.Add('data', nkNull);
+      jroot.Delete('fieldnames');
+      jroot.Add('error', 901);
+      jroot.Add('errormsg', e.ToString);
+      ReturnJson(sconn);
+    end;
+  end;
+
+end;
+
+{$endif}
 
 end.
 
