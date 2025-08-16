@@ -15,7 +15,7 @@ program http_jsq_server;
 uses
   {$IFDEF UNIX} cthreads {$ENDIF}, baseunix,
   SysUtils, DateUtils, sqlite3conn, db, sqldb, jsontools,
-  nano_sockets, nano_http;
+  util_generic, nano_sockets, nano_http, nano_jsq;
 
 const
   http_listen_port = 8080;
@@ -45,13 +45,13 @@ type
     lsql      : TSQLQuery;
     lsqltra   : TSQLTransaction;
 
+    jsq    : TNanoJsq;
+
     constructor Create(alisten_port : uint16); reintroduce;
 
     procedure OpenDatabase;
     procedure Handle_sensors(sconn : TSConnHttpApp);
     procedure Handle_sensordata(sconn : TSConnHttpApp);
-
-    procedure ReturnSqlData(sconn : TSConnHttpApp; asql : string);
   end;
 
 var
@@ -65,8 +65,6 @@ begin
 end;
 
 procedure TSConnHttpApp.Handle_status();
-//var
-//  k, v : ansistring;
 begin
   response := '{"error":0,"errormsg":"","data":{'
     +'"status": "This is some status text"'
@@ -83,21 +81,40 @@ begin
     +'}}';
 end;
 
+function GetTs() : string;
+begin
+  result := FormatDateTime('yyyy-mm-dd hh:nn:ss', now);
+end;
+
 function TSConnHttpApp.ProcessRequest() : boolean;
 begin
   if uri = '/' then uri := '/index.html';
 
-  // handle internal pages
-
   result := true;
 
-  if      '/data/status'  = uri then  Handle_status()
-  else if '/data/counter' = uri then  Handle_counter()
-  else if '/data/sensors' = uri then  svrapp.Handle_sensors(self)
-  else if '/data/sensordata' = uri then  svrapp.Handle_sensordata(self)
-  else
-  begin
-    result := HandleStaticFiles('./www');
+  // handle internal pages
+  try
+
+    if      '/data/status'  = uri then  Handle_status()
+    else if '/data/counter' = uri then  Handle_counter()
+    else if '/data/sensors' = uri then  svrapp.Handle_sensors(self)
+    else if '/data/sensordata' = uri then  svrapp.Handle_sensordata(self)
+    else
+    begin
+      result := HandleStaticFiles('./www');
+    end;
+
+  except
+    on e : Exception do
+    begin
+      writeln();
+      writeln(GetTs()+': ERROR at "',url,'"');
+      writeln(e.ToString);
+
+      // print stack trace with line infos
+      writeln('Backtrace:');
+      writeln('  '+GetLastExceptionCallStack('WaitForEvents')); // stop backtracing at nanonet/WaitForEvents
+    end;
   end;
 end;
 
@@ -107,6 +124,7 @@ constructor THttpServerApp.Create(alisten_port : uint16);
 begin
   inherited Create(TSConnHttpApp, alisten_port);
 
+  jsq := nil;
   counter := 0;
 end;
 
@@ -124,95 +142,43 @@ begin
   ldbconn.OpenFlags := [sofReadWrite, sofFullMutex];
 
   ldbconn.Open;
+
+  jsq := TNanoJsq.Create(lsql);
 end;
 
 procedure THttpServerApp.Handle_sensors(sconn : TSConnHttpApp);
 begin
-  ReturnSqlData(sconn, 'select * from MTYPES');
+  jsq.ReturnSqlData(sconn, 'select * from MTYPES');
 end;
 
 procedure THttpServerApp.Handle_sensordata(sconn : TSConnHttpApp);
 begin
-  ReturnSqlData(sconn, 'select * from MDATA limit 10');
-end;
+  // example for embedding complex queries in a readable way:
 
-procedure THttpServerApp.ReturnSqlData(sconn : TSConnHttpApp; asql : string);
-var
-  jroot : TJsonNode;
-  jdata: TJsonNode;
-  jrow : TJsonNode;
-  jfnames : TJsonNode;
-  f : TField;
-  fi : integer;
-begin
-  jroot := TJsonNode.Create;
-  jroot.Add('error', 0);
-  jroot.Add('errormsg', '');
-
-  try
-    lsql.SQL.Text := asql;
-    lsql.Open;
-    if not lsql.EOF then
-    begin
-      jfnames := jroot.Add('fieldnames', nkArray);
-      for fi := 0 to lsql.FieldCount - 1 do
-      begin
-        jfnames.Add('', lsql.Fields[fi].FieldName);
-      end;
-    end;
-
-    jdata := jroot.Add('data', nkArray);
-
-    while not lsql.EOF do
-    begin
-      jrow := jdata.Add('', nkArray);
-      for fi := 0 to lsql.FieldCount - 1 do
-      begin
-        f := lsql.Fields[fi];
-        if f.DataType in [ftInteger, ftSmallInt, ftWord, ftAutoInc, ftLargeInt] then
-        begin
-          jrow.Add('', lsql.Fields[fi].AsInteger);
-        end
-        else if f.DataType in [ftDateTime] then
-        begin
-          jrow.Add('', FormatDateTime('yyyy-mm-dd hh:nn:ss', lsql.Fields[fi].AsDateTime));
-        end
-        else if f.DataType = ftBoolean then
-        begin
-          jrow.Add('', lsql.Fields[fi].AsBoolean);
-        end
-        else if f.DataType in [ftFloat, ftCurrency, ftBCD] then
-        begin
-          jrow.Add('', lsql.Fields[fi].AsFloat);
-        end
-        else  // fallback to string
-        begin
-          jrow.Add('', lsql.Fields[fi].AsString);
-        end;
-      end;
-      lsql.Next;
-    end;
-    lsql.Close;
-  except
-    on e : Exception do
-    begin
-      lsql.Active := false;
-      jroot.Add('data', nkNull);
-      jroot.Delete('fieldnames');
-      jroot.Add('error', 901);
-      jroot.Add('errormsg', e.ToString);
-    end;
-  end;
-
-  sconn.response := jroot.AsJson;
-
-  jroot.Free;
+  jsq.ReturnSqlData(sconn, String.Join(LineEnding,
+  [
+    'select '
+   ,'  *'
+   ,'from'
+   ,'  MDATA'
+   ,'limit'
+   ,'  10'
+  ]));
 end;
 
 //--------------------------------------------------------------------------------
 
+var
+  console_text_buf : array[0..255] of byte;
+
 procedure MainProc;
 begin
+  InitExceptionsLineInfo;
+
+  // disable console buffering:
+  console_text_buf[0] := 0;
+  SetTextBuf(output, console_text_buf[0], 1);
+
   writeln('NanoNet - HTTP JS Query Server');
 
   svrapp := THttpServerApp.Create(http_listen_port);
@@ -226,9 +192,23 @@ begin
 
   while True do
   begin
-    svrapp.WaitForEvents(1000);
+    try
+      svrapp.WaitForEvents(1000);
 
-    // you can do something else here
+     // you can do something else here
+
+    except // catch all other exceptions here to allow the server running further
+      on e : Exception do
+      begin
+        writeln();
+        writeln(GetTs()+': ERROR');
+        writeln(e.ToString);
+
+        // print stack trace with line infos
+        writeln('Backtrace:');
+        writeln('  '+GetLastExceptionCallStack('x'));
+      end;
+    end;
   end;
 end;
 

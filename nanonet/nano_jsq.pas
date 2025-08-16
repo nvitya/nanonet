@@ -296,6 +296,8 @@ begin
       jroot.Add('error', 901);
       jroot.Add('errormsg', e.ToString);
       ReturnJson(sconn);
+
+      raise;
     end;
   end;
 

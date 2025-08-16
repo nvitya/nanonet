@@ -14,7 +14,7 @@ program http_static_files;
 
 uses
   {$IFDEF UNIX} cthreads {$ENDIF}, baseunix,
-  SysUtils, DateUtils,
+  SysUtils, DateUtils, util_generic,
   nano_sockets, nano_http;
 
 const
@@ -39,6 +39,11 @@ begin
   inherited Create(aserver);
 end;
 
+function GetTs() : string;
+begin
+  result := FormatDateTime('yyyy-mm-dd hh:nn:ss', now);
+end;
+
 function TSConnHttpApp.ProcessRequest() : boolean;
 var
   i : integer;
@@ -46,34 +51,48 @@ var
 begin
   if uri = '/' then uri := '/index.html';
 
-  // handle internal pages
+  try
+    // handle internal pages
 
-  if uri = '/data' then
-  begin
-    response := 'This is my plain text http response.'+#13#10
-      +'uri="'+uri+'"'#13#10
-      +'getstr="'+getstr+'"'#13#10
-    ;
-
-    for i := 0 to qsvars.count - 1 do
+    if uri = '/data' then
     begin
-      k := qsvars.Keys[i];
-      v := qsvars.Data[i];
-      response += 'QsVar: "'+k+'" = "'+v+'"'#13#10;
+      response := 'This is my plain text http response.'+#13#10
+        +'uri="'+uri+'"'#13#10
+        +'getstr="'+getstr+'"'#13#10
+      ;
+
+      for i := 0 to qsvars.count - 1 do
+      begin
+        k := qsvars.Keys[i];
+        v := qsvars.Data[i];
+        response += 'QsVar: "'+k+'" = "'+v+'"'#13#10;
+      end;
+
+      v := qsvars.KeyDataDef('a', '');
+      if v <> '' then response += 'QS var "a" is set to "'+v+'"'#13#10;
+
+      v := qsvars.KeyDataDef('c', '');
+      if v <> '' then response += 'Get var "c" is set to "'+v+'"'#13#10
+                 else response += 'Get var "c" is not set.'#13#10;
+
+      result := true;
+    end
+    else
+    begin
+      result := HandleStaticFiles('./www');
     end;
 
-    v := qsvars.KeyDataDef('a', '');
-    if v <> '' then response += 'QS var "a" is set to "'+v+'"'#13#10;
+  except
+    on e : Exception do
+    begin
+      writeln();
+      writeln(GetTs()+': ERROR at "',url,'"');
+      writeln(e.ToString);
 
-    v := qsvars.KeyDataDef('c', '');
-    if v <> '' then response += 'Get var "c" is set to "'+v+'"'#13#10
-               else response += 'Get var "c" is not set.'#13#10;
-
-    result := true;
-  end
-  else
-  begin
-    result := HandleStaticFiles('./www');
+      // print stack trace with line infos
+      writeln('Backtrace:');
+      writeln('  '+GetLastExceptionCallStack('WaitForEvents')); // stop backtracing at nanonet/WaitForEvents
+    end;
   end;
 end;
 
@@ -81,9 +100,16 @@ end;
 
 var
   svr : TNanoHttpServer;
+  console_text_buf : array[0..255] of byte;
 
 procedure MainProc;
 begin
+  InitExceptionsLineInfo;
+
+  // disable console buffering:
+  console_text_buf[0] := 0;
+  SetTextBuf(output, console_text_buf[0], 1);
+
   writeln('NanoNet - Simple Http Server');
 
   svr := TNanoHttpServer.Create(TSConnHttpApp, http_listen_port);
@@ -95,9 +121,23 @@ begin
 
   while True do
   begin
-    svr.WaitForEvents(1000);
+    try
+      svr.WaitForEvents(1000);
 
-    // you can do something else here
+     // you can do something else here
+
+    except // catch all other exceptions here to allow the server running further
+      on e : Exception do
+      begin
+        writeln();
+        writeln(GetTs()+': ERROR');
+        writeln(e.ToString);
+
+        // print stack trace with line infos
+        writeln('Backtrace:');
+        writeln('  '+GetLastExceptionCallStack('x'));
+      end;
+    end;
   end;
 end;
 

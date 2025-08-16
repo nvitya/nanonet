@@ -13,7 +13,7 @@ program http_sessions;
 
 uses
   {$IFDEF UNIX} cthreads {$ENDIF}, baseunix,
-  SysUtils, DateUtils, jsontools,
+  SysUtils, DateUtils, jsontools, util_generic,
   nano_sockets, nano_http, nano_sessions;
 
 const
@@ -40,6 +40,11 @@ begin
   inherited Create(aserver);
 end;
 
+function GetTs() : string;
+begin
+  result := FormatDateTime('yyyy-mm-dd hh:nn:ss', now);
+end;
+
 function TSConnHttpApp.ProcessRequest() : boolean;
 var
   jv : TJsonNode;
@@ -49,31 +54,45 @@ begin
 
   if uri = '/' then uri := '/index.html';
 
-  // handle internal pages
+  try
+    // handle internal pages
 
-  if uri = '/data' then
-  begin
-    //writeln('processrq(',uri,'), sid=',session.id);
-    session := sessionstore.InitSession(self);
+    if uri = '/data' then
+    begin
+      //writeln('processrq(',uri,'), sid=',session.id);
+      session := sessionstore.InitSession(self);
 
-    rqcounter := 0;
-    if session.data.Find('RQCOUNTER', jv) then rqcounter := trunc(jv.AsNumber);
+      rqcounter := 0;
+      if session.data.Find('RQCOUNTER', jv) then rqcounter := trunc(jv.AsNumber);
 
-    inc(rqcounter);
+      inc(rqcounter);
 
-    response := 'Session data: '+#13#10
-      + session.data.Value;
+      response := 'Session data: '+#13#10
+        + session.data.Value;
 
-    session.data.Add('RQCOUNTER', rqcounter);
+      session.data.Add('RQCOUNTER', rqcounter);
 
-    // only the dynamic requests can change the session data
-    sessionstore.SaveSession(session);
+      // only the dynamic requests can change the session data
+      sessionstore.SaveSession(session);
 
-    result := true;
-  end
-  else
-  begin
-    result := HandleStaticFiles('./www');
+      result := true;
+    end
+    else
+    begin
+      result := HandleStaticFiles('./www');
+    end;
+
+  except
+    on e : Exception do
+    begin
+      writeln();
+      writeln(GetTs()+': ERROR at "',url,'"');
+      writeln(e.ToString);
+
+      // print stack trace with line infos
+      writeln('Backtrace:');
+      writeln('  '+GetLastExceptionCallStack('WaitForEvents')); // stop backtracing at nanonet/WaitForEvents
+    end;
   end;
 end;
 
@@ -81,9 +100,16 @@ end;
 
 var
   svr : TNanoHttpServer;
+  console_text_buf : array[0..255] of byte;
 
 procedure MainProc;
 begin
+  InitExceptionsLineInfo;
+
+  // disable console buffering:
+  console_text_buf[0] := 0;
+  SetTextBuf(output, console_text_buf[0], 1);
+
   writeln('NanoNet - Http Sessions Test');
 
   if not InitJsonFileSessionStore('./sessions', true) then
@@ -102,9 +128,23 @@ begin
 
   while True do
   begin
-    svr.WaitForEvents(1000);
+    try
+      svr.WaitForEvents(1000);
 
-    // you can do something else here
+     // you can do something else here
+
+    except // catch all other exceptions here to allow the server running further
+      on e : Exception do
+      begin
+        writeln();
+        writeln(GetTs()+': ERROR');
+        writeln(e.ToString);
+
+        // print stack trace with line infos
+        writeln('Backtrace:');
+        writeln('  '+GetLastExceptionCallStack('x'));
+      end;
+    end;
   end;
 end;
 
