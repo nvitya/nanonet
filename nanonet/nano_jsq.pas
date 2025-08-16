@@ -43,6 +43,8 @@ type
   public
     keep_last_sql_result : boolean;
 
+    number_format : TFormatSettings;
+
     jroot : TJsonNode;
     jdata : TJsonNode;
 
@@ -71,6 +73,10 @@ begin
 
   jroot := TJsonNode.Create;
   sqlq := asqlq;
+
+  number_format := FormatSettings;
+  number_format.DecimalSeparator := '.';
+  number_format.ThousandSeparator := chr(0);
 
   Reset;
 end;
@@ -257,7 +263,7 @@ begin
         end
         else if f.DataType in [ftFloat, ftCurrency, ftBCD] then
         begin
-          strvalue := sqlq.Fields[fi].AsString;
+          strvalue := FloatToStr(sqlq.Fields[fi].AsFloat, number_format);  // own number format to ensure '.' as decimal separator
         end
         else  // fallback to string
         begin
