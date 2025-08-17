@@ -36,6 +36,7 @@ type
   TSimpleDatagram = class(TNanoDatagram)
   public
     response_arrived : boolean;
+    rq_send_microtime : int64;
 
     pmsg : PSimpleMsgRec;
 
@@ -44,6 +45,7 @@ type
     procedure ProcessInData(); override;
 
     procedure SendRequest(aop, aarg1, aarg2 : integer);
+    function WaitResponse(atimeout_ms : integer) : boolean;
   end;
 
 var
@@ -87,6 +89,27 @@ begin
   response_arrived := false;
 
   SendRawData();
+  rq_send_microtime := microtime();
+end;
+
+function TSimpleDatagram.WaitResponse(atimeout_ms : integer) : boolean;
+var
+  td, t : int64;
+  to_ms : integer;
+begin
+  result := false;
+  td := rq_send_microtime + atimeout_ms * 1000;
+  while not response_arrived do
+  begin
+    t := microtime();
+    to_ms := (td - t) div 1000;  // the remaining time to wait for the response
+    if to_ms <= 0 then
+    begin
+      EXIT; // timeout elapsed
+    end;
+    server.WaitForEvents(to_ms);    // may receive multiple unrelated packets too
+  end;
+  result := true;
 end;
 
 
@@ -105,16 +128,19 @@ begin
 
   writeln('Sending request...');
 
-  rqmsg.SendRequest(0, 3, 2);
-
-  writeln('Waiting for the response...');
-
-  svr.WaitForEvents(1000);
-
-  if not rqmsg.response_arrived then
+  rqmsg.SendRequest(1, 3, 2);
+  //writeln('Waiting for the response...');
+  if not rqmsg.WaitResponse(500) then
   begin
     writeln('Response timeout!');
   end;
+
+  rqmsg.SendRequest(0, 3, 2);
+  if not rqmsg.WaitResponse(500) then
+  begin
+    writeln('Response timeout!');
+  end;
+
 
   writeln('test finished.');
 end;
