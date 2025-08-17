@@ -119,7 +119,7 @@ procedure MainProc;
 begin
   writeln('NanoNet - UDP Simple Client');
 
-  svr := TNanoUdpServer.Create(TSimpleDatagram, 4466);  // UDP server for receiving the responses
+  svr := TNanoUdpServer.Create(TSimpleDatagram, 0);  // UDP server for receiving the responses, port=0: auto-allocate
   svr.InitListener;
   rqmsg := TSimpleDatagram(svr.CreateDatagram);
   rqmsg.SetRemoteAddr(server_address, 4455);

@@ -53,7 +53,7 @@ procedure TSimpleDatagram.ProcessInData();
 var
   r : integer;
 begin
-  //writeln('Msg received from ',GetRemoteAddrStr(),', len = ', rawdata_len);
+  writeln('Msg received from ',GetRemoteAddrStr(),', len = ', rawdata_len);
 
   rspmsg.pmsg^ := pmsg^;  // copy the request
 
