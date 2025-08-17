@@ -244,6 +244,63 @@ type
     function WaitForEvents(timeout_ms : integer) : boolean;
   end;
 
+  //-----------------------------------------------------------------
+  // UDP / Datagram Handling
+  //-----------------------------------------------------------------
+
+const
+  nano_datagram_max_length = 1472;  // maximal UDP payload size
+
+type
+  TNanoUdpServer = class;
+
+  { TNanoDatagram }
+
+  TNanoDatagram = class
+  public
+    rawdata         : array[0..nano_datagram_max_length] of byte;
+    rawdata_len     : integer;
+
+    remote_addr     : TSockAddr;
+    remote_addr_len : TSocklen;
+
+    server          : TNanoUdpServer;
+    keep_in_memory  : boolean;          // false: will be released after processing
+
+    constructor Create(aserver : TNanoUdpServer); virtual;
+    destructor Destroy; override;
+
+    function RecvRawData() : integer;   // remote_addr will be filled
+    function SendRawData() : integer;   // uses rawdata, rawdata_len, remote_addr
+
+    procedure ProcessInData(); virtual;  // should be overridden
+
+    procedure SetRemoteAddr(aaddr : ansistring; aport : uint16);
+    function GetRemoteAddrStr() : ansistring;
+  end;
+
+  TNanoDatagramClass = class of TNanoDatagram;
+
+  { TNanoUdpServer }
+
+  TNanoUdpServer = class
+  public
+    listen_port  : uint16;
+    sock_listen  : TNanoSocket;
+    swatcher     : TSocketWatcher;
+    dg_class     : TNanoDatagramClass;
+
+    constructor Create(adg_class : TNanoDatagramClass; alisten_port : uint16); virtual;
+    destructor Destroy; override;
+
+    procedure InitListener;
+
+    function WaitForEvents(timeout_ms : integer) : boolean;
+
+    procedure HandleListener(aobj : TObject);
+    function CreateDatagram : TNanoDatagram;
+  end;
+
 
 implementation
 
@@ -362,7 +419,7 @@ end;
 procedure TNanoSocket.SetSockParams;
 begin
   SetNonBlocking;
-  SetTcpNoDelay(true);
+  if stype <> stUdp4 then SetTcpNoDelay(true);
   SetSockBufSizes;
 end;
 
@@ -381,7 +438,8 @@ procedure TNanoSocket.InitListener(aport : uint16);
 var
   i, arg : integer;
 begin
-  FSocket := fpSocket(AF_INET, SOCK_STREAM, 0);
+  if stype = stUdp4 then FSocket := fpSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+                    else FSocket := fpSocket(AF_INET, SOCK_STREAM, 0);
   if FSocket <= 0
   then
       raise ENanoNet.Create('InitListener: Error creating the listener socket');
@@ -405,9 +463,12 @@ begin
   then
       raise ENanoNet.Create('InitListener: Error binding to port '+IntToStr(aport));
 
-  if fpListen(FSocket, 64) <> 0
-  then
-      raise ENanoNet.Create('InitListener: Listen error');
+  if stype <> stUdp4 then
+  begin
+    if fpListen(FSocket, 64) <> 0
+    then
+        raise ENanoNet.Create('InitListener: Listen error');
+  end;
 end;
 
 function TNanoSocket.AcceptConnection(asvrsocket : THandle) : boolean;
@@ -708,6 +769,114 @@ begin
 
   connections.Remove(aconn);
   closed_conns.Add(aconn);
+end;
+
+{ TNanoUdpServer }
+
+constructor TNanoUdpServer.Create(adg_class : TNanoDatagramClass; alisten_port : uint16);
+begin
+  dg_class := adg_class;
+  listen_port := alisten_port;
+
+  sock_listen := TNanoSocket.Create(stUdp4);
+  swatcher := TSocketWatcher.Create(64);
+end;
+
+destructor TNanoUdpServer.Destroy;
+begin
+  swatcher.Free;
+  sock_listen.Free;
+
+  inherited Destroy;
+end;
+
+procedure TNanoUdpServer.InitListener;
+begin
+  sock_listen.InitListener(listen_port);
+
+  swatcher.AddSocket(sock_listen, sock_listen, @HandleListener, nil);
+end;
+
+function TNanoUdpServer.WaitForEvents(timeout_ms : integer) : boolean;
+begin
+  result := swatcher.WaitForEvents(timeout_ms);
+end;
+
+procedure TNanoUdpServer.HandleListener(aobj : TObject);
+var
+  dg : TNanoDatagram;
+begin
+  dg := CreateDatagram();
+  if dg.RecvRawData() > 0 then
+  begin
+    dg.ProcessInData();
+  end;
+  if not dg.keep_in_memory then
+  begin
+    dg.Free;
+  end;
+end;
+
+function TNanoUdpServer.CreateDatagram : TNanoDatagram;
+begin
+  result := dg_class.Create(self);
+end;
+
+{ TNanoDatagram }
+
+constructor TNanoDatagram.Create(aserver : TNanoUdpServer);
+begin
+  server := aserver;
+  rawdata_len := 0;
+  fillchar(remote_addr, sizeof(remote_addr), 0);
+  remote_addr_len := sizeof(remote_addr);
+  keep_in_memory := false;
+end;
+
+destructor TNanoDatagram.Destroy;
+begin
+  inherited Destroy;
+end;
+
+function TNanoDatagram.RecvRawData() : integer;
+begin
+  remote_addr_len := sizeof(remote_addr);
+  result := fprecvfrom(server.sock_listen.Socket, @rawdata[0], length(rawdata), 0, @remote_addr, @remote_addr_len);
+  if result > 0 then
+  begin
+    rawdata_len := result;
+  end
+  else
+  begin
+    rawdata_len := 0;
+  end;
+end;
+
+function TNanoDatagram.SendRawData() : integer;
+begin
+  result := fpsendto(server.sock_listen.Socket, @rawdata[0], rawdata_len, 0, @remote_addr, remote_addr_len);
+end;
+
+procedure TNanoDatagram.ProcessInData();
+begin
+  // does nothing, should be overridden
+end;
+
+procedure TNanoDatagram.SetRemoteAddr(aaddr : ansistring; aport : uint16);
+var
+  sarr : array of ansistring;
+begin
+  sarr := aaddr.Split('.');
+  if length(sarr) <> 4 then raise Exception.Create('Invalid Host IP address: '+aaddr);
+
+	remote_addr.sin_family := AF_INET;
+  remote_addr.sin_addr.s_addr := htonl(StrToHostAddr(aaddr).s_addr);
+  remote_addr.sin_port := htons(aport);
+end;
+
+function TNanoDatagram.GetRemoteAddrStr() : ansistring;
+begin
+  result := NetAddrToStr(remote_addr.sin_addr) + ':' + IntToStr(ntohs(remote_addr.sin_port));
 end;
 
 { TMultiClientMgr }
