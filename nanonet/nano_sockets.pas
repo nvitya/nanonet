@@ -372,7 +372,8 @@ begin
   r := fpConnect(FSocket, @remote_addr, sizeof(remote_addr));
   if r < 0 then
   begin
-    if (socketerror <> EsockEWOULDBLOCK) and (socketerror <> ESysEINPROGRESS) then
+    if (socketerror <> EsockEWOULDBLOCK)
+       {$ifndef WINDOWS} and (socketerror <> ESysEINPROGRESS) {$endif} then
     begin
       Disconnect;
       exit;
@@ -500,7 +501,7 @@ end;
 
 function TNanoSocket.Send(const srcdata; srclen : cardinal) : integer;
 begin
-  result := fpsend(FSocket, @srcdata, srclen, MSG_NOSIGNAL);
+  result := fpsend(FSocket, @srcdata, srclen, {$ifndef WINDOWS}MSG_NOSIGNAL{$else}0{$endif});
   if result < 0 then result := -socketerror;
 end;
 
@@ -638,6 +639,55 @@ begin
     end;
   end;
 end;
+
+{$endif}
+
+{$ifdef WINDOWS}
+
+{ TSocketWatcher }
+
+constructor TSocketWatcher.Create(amaxfds : integer);
+begin
+  maxfds := amaxfds;
+  maxevents := 32; // ok for smaller systems too
+  //FFdEpoll := epoll_create(amaxfds);  // the size argument is ignored since linux 2.6.8
+  //SetLength(FREvents, maxevents);
+end;
+
+destructor TSocketWatcher.Destroy;
+begin
+  //FileClose(FFdEpoll);
+  //SetLength(FREvents, 0);
+  inherited Destroy;
+end;
+
+procedure TSocketWatcher.AddSocket(asock : TNanoSocket; aobj_link : TObject; ainev : TInEventHandler; aoutev : TOutEventHandler);
+begin
+
+end;
+
+procedure TSocketWatcher.ModifySocket(asock : TNanoSocket);
+begin
+end;
+
+procedure TSocketWatcher.RemoveSocket(asock : TNanoSocket);
+begin
+end;
+
+procedure TSocketWatcher.SetOutHandler(asock : TNanoSocket; aoutev : TOutEventHandler);
+begin
+end;
+
+procedure TSocketWatcher.SetInHandler(asock : TNanoSocket; ainev : TOutEventHandler);
+begin
+end;
+
+function TSocketWatcher.WaitForEvents(atimeout_ms : integer) : boolean;
+begin
+  result := false;
+end;
+
+{$endif}
 
 { TSConnection }
 
@@ -876,7 +926,7 @@ end;
 
 function TNanoDatagram.GetRemoteAddrStr() : ansistring;
 begin
-  result := NetAddrToStr(remote_addr.sin_addr) + ':' + IntToStr(ntohs(remote_addr.sin_port));
+  result := NetAddrToStr(sockets.in_addr(remote_addr.sin_addr)) + ':' + IntToStr(ntohs(remote_addr.sin_port));
 end;
 
 { TMultiClientMgr }
@@ -941,7 +991,7 @@ end;
 
 procedure TCConnection.HandleOutputForConnect(aobj : TObject);  // called when the connect finished
 var
-  err : cint;
+  err : integer;
   len : TSockLen;
 begin
   //writeln('HandleOutputForConnect');
@@ -949,7 +999,7 @@ begin
   len := sizeof(err);
   if fpgetsockopt(sock.Socket, SOL_SOCKET, SO_ERROR, @err, @len) <> 0 then
   begin
-    err := ESysEBADF;
+    err := {$ifdef WINDOWS}WSAENOTSOCK{$else}ESysEBADF{$endif};
   end;
   if err <> 0 then
   begin
@@ -987,8 +1037,6 @@ begin
   manager.swatcher.SetOutHandler(sock, aoutev);
 end;
 
-
-{$endif}
 
 {$ifdef WINDOWS}
 var
