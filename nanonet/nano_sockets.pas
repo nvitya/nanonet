@@ -32,7 +32,7 @@ interface
 
 uses
   Classes, SysUtils, Sockets, fgl
-  {$ifdef WINDOWS} , WinSock {$else} , BaseUnix, Linux {$endif}
+  {$ifdef WINDOWS} , WinSock2 {$else} , BaseUnix, Linux {$endif}
   ;
 
 type
@@ -115,7 +115,8 @@ type
   TSocketWatcher = class  // for timed wait for read/write events
   protected
     {$ifdef WINDOWS}
-
+      FReadFDSet  : TFDSet;
+      FWriteFDSet : TFDSet;
     {$endif}
 
     {$ifdef LINUX}
@@ -389,7 +390,7 @@ var
 begin
   {$ifdef WINDOWS}
     i := 1;
-    ioctlsocket(FSocket, longint(FIONBIO), i);  // set to non-blocking
+    ioctlsocket(FSocket, longint(FIONBIO), @i);  // set to non-blocking
   {$else}
     i := FpFcntl(FSocket , F_GETFL);
     i := i or O_NONBLOCK;
@@ -650,6 +651,10 @@ constructor TSocketWatcher.Create(amaxfds : integer);
 begin
   maxfds := amaxfds;
   maxevents := 32; // ok for smaller systems too
+
+  FD_ZERO(FReadFDSet);
+  FD_ZERO(FWriteFDSet);
+
   //FFdEpoll := epoll_create(amaxfds);  // the size argument is ignored since linux 2.6.8
   //SetLength(FREvents, maxevents);
 end;
