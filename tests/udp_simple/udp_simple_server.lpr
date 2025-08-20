@@ -9,10 +9,12 @@
 *)
 program udp_simple_server;
 
+{$apptype CONSOLE}
+
 {$mode objfpc}{$H+}
 
 uses
-  {$IFDEF UNIX} cthreads {$ENDIF}, baseunix, nano_sockets;
+  {$IFDEF UNIX} cthreads, baseunix, {$ENDIF} nano_sockets;
 
 type
 

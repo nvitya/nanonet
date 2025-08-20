@@ -32,8 +32,13 @@ interface
 
 uses
   Classes, SysUtils, Sockets, fgl
-  {$ifdef WINDOWS} , WinSock2 {$else} , BaseUnix, Linux {$endif}
+  {$ifdef WINDOWS} ,WinSock2 {$else} , BaseUnix, Linux {$endif}
   ;
+
+{$ifndef WINDOWS}
+const
+    INVALID_SOCKET = -1;
+{$endif}
 
 type
 
@@ -52,7 +57,7 @@ type
 
   TNanoSocket = class
   protected
-    fsocket : integer;
+    fsocket : TSocket;   // 64-bit unsigned on Win64, 32-bit signed on Linux
 
   public
     stype : TNbSocketType;
@@ -93,36 +98,62 @@ type
 
 
   public
-    property Socket : integer read FSocket;
+    property Socket : TSocket read FSocket;
   end;
 
   { TSocketWatcher }
 
-  {$ifdef WINDOWS}
+{$ifdef WINDOWS}
 
-    // use SELECT on windows
+const
+  POLLRDNORM = $0100;
+  POLLWRNORM = $0200;
+  POLLERR    = $0001;
+  POLLHUP    = $0002;
+  POLLNVAL   = $0004;
 
-  {$else}  // linux then
+type
+  WSAPOLLFD = record
+    fd       : TSocket;
+    events   : ShortInt;
+    revents  : ShortInt;
+  end;
 
-    // use EPOLL on linux
+  PWSAPOLLFD = ^WSAPOLLFD;
 
-    TEpollEvent = epoll_event;
-    TEpollData  = epoll_data;
+  // use SELECT on windows
 
-  {$endif}
+  TWinPollMap = specialize TFPGMap<Pointer, WSAPOLLFD>;  // automatically frees the objects
 
+  function WSAPoll(fds : PWSAPOLLFD; nfds : uint32; timeout : integer) : integer; stdcall; external 'ws2_32.dll';
+
+{$else}  // linux then
+
+type
+  // use EPOLL on linux
+
+  TEpollEvent = epoll_event;
+  TEpollData  = epoll_data;
+
+{$endif}
+
+type
 
   TSocketWatcher = class  // for timed wait for read/write events
   protected
-    {$ifdef WINDOWS}
-      FReadFDSet  : TFDSet;
-      FWriteFDSet : TFDSet;
-    {$endif}
+  {$ifdef WINDOWS}
+    // warning: the TFDSet is defined with fix amount of 64 sockets maximum
+    FReadFDSet  : TFDSet;
+    FWriteFDSet : TFDSet;
 
-    {$ifdef LINUX}
-      FFdEpoll : THandle;
-      FREvents : array of TEpollEvent;
-    {$endif}
+    pollmap : TWinPollMap;
+
+  {$endif}
+
+  {$ifdef LINUX}
+    FFdEpoll : THandle;
+    FREvents : array of TEpollEvent;
+  {$endif}
 
   public
     maxfds    : integer;
@@ -331,7 +362,7 @@ const
 constructor TNanoSocket.Create(atype : TNbSocketType);
 begin
   stype := atype;
-  fsocket := -1;
+  fsocket := INVALID_SOCKET;
 
   ConnectTimeout := 1000;
   ResponseTimeout := 1000;
@@ -362,9 +393,8 @@ begin
   remote_addr.sin_port := htons(aport);
 
   FSocket := fpSocket(AF_INET, SOCK_STREAM, 0);
-  if FSocket < 0 then
+  if FSocket = INVALID_SOCKET then
   begin
-    FSocket := -1;
     exit;
   end;
 
@@ -427,7 +457,7 @@ end;
 
 function TNanoSocket.Connected : boolean;
 begin
-  result := (FSocket >= 0);
+  result := (FSocket <> INVALID_SOCKET);
 end;
 
 destructor TNanoSocket.Destroy;
@@ -482,7 +512,7 @@ begin
 
   SetSockParams;
 
-  result := (fsocket >= 0);
+  result := (fsocket <> INVALID_SOCKET);
 end;
 
 procedure TNanoSocket.Disconnect;
@@ -490,7 +520,7 @@ begin
   if Connected then
   begin
     closesocket(FSocket);
-    FSocket := -1;
+    FSocket := INVALID_SOCKET;
   end;
 end;
 
@@ -587,18 +617,6 @@ begin
   end;
 end;
 
-procedure TSocketWatcher.SetOutHandler(asock : TNanoSocket; aoutev : TOutEventHandler);
-begin
-  asock.out_event_handler := aoutev;
-  ModifySocket(asock);
-end;
-
-procedure TSocketWatcher.SetInHandler(asock : TNanoSocket; ainev : TOutEventHandler);
-begin
-  asock.in_event_handler := ainev;
-  ModifySocket(asock);
-end;
-
 function TSocketWatcher.WaitForEvents(atimeout_ms : integer) : boolean;
 var
   evcnt : integer;
@@ -645,6 +663,48 @@ end;
 
 {$ifdef WINDOWS}
 
+procedure AddToWinFdSet(var aset: TFDSet; asock: TSocket);
+var
+  i : integer;
+begin
+  for i := 0 to aset.fd_count - 1 do
+  begin
+    if aset.fd_array[i] = asock
+    then
+        EXIT;  // already present in the array
+  end;
+
+  if aset.fd_count < FD_SETSIZE then
+  begin
+    aset.fd_array[aset.fd_count] := asock;
+    Inc(aset.fd_count);
+  end;
+end;
+
+procedure RemoveFromWinFdSet(var aset: TFDSet; asock: TSocket);
+var
+  i, delcnt : integer;
+begin
+  i := 0;
+  delcnt := 0;
+  while i < aset.fd_count do
+  begin
+    if aset.fd_array[i] = asock then
+    begin
+      Inc(delcnt);
+    end
+    else
+    begin
+      if delcnt > 0 then
+      begin
+        aset.fd_array[i - delcnt] := aset.fd_array[i];
+      end;
+    end;
+    Inc(i);
+  end;
+  aset.fd_count -= delcnt;
+end;
+
 { TSocketWatcher }
 
 constructor TSocketWatcher.Create(amaxfds : integer);
@@ -655,44 +715,141 @@ begin
   FD_ZERO(FReadFDSet);
   FD_ZERO(FWriteFDSet);
 
-  //FFdEpoll := epoll_create(amaxfds);  // the size argument is ignored since linux 2.6.8
-  //SetLength(FREvents, maxevents);
+  pollmap := TWinPollMap.Create();
 end;
 
 destructor TSocketWatcher.Destroy;
 begin
-  //FileClose(FFdEpoll);
-  //SetLength(FREvents, 0);
+  pollmap.Free;
   inherited Destroy;
 end;
 
 procedure TSocketWatcher.AddSocket(asock : TNanoSocket; aobj_link : TObject; ainev : TInEventHandler; aoutev : TOutEventHandler);
 begin
+  if asock.Socket = INVALID_SOCKET
+  then
+      raise ENanoNet.Create('SocketWatcher.AddSocket: invalid socket handle.');
 
+  asock.obj_link := aobj_link;
+  asock.in_event_handler := ainev;
+  asock.out_event_handler := aoutev;
+
+  ModifySocket(asock);
 end;
 
 procedure TSocketWatcher.ModifySocket(asock : TNanoSocket);
+var
+  prec  : WSAPOLLFD;
+  pprec : PWSAPOLLFD;
+  mapidx : integer;
 begin
+  if asock.Socket = INVALID_SOCKET then EXIT;
+
+  if asock.in_event_handler <> nil then
+  begin
+    AddToWinFdSet(FReadFdSet, asock.Socket);
+  end
+  else
+  begin
+    RemoveFromWinFdSet(FReadFdSet, asock.Socket);
+  end;
+
+  if asock.out_event_handler <> nil then
+  begin
+    AddToWinFdSet(FWriteFDSet, asock.Socket);
+  end
+  else
+  begin
+    RemoveFromWinFdSet(FWriteFDSet, asock.Socket);
+  end;
+
+  if pollmap.Find(asock, mapidx) then mapidx := -1;
+
+  if (asock.in_event_handler <> nil) or (asock.out_event_handler <> nil) then
+  begin
+    if mapidx > 0 then
+    begin
+      //pprec := @WSAPOLLFD(pollmap.Data[mapidx]);
+    end
+    else
+    begin
+      prec.fd := asock.Socket;
+      pprec := @prec;
+      pollmap.Add(asock, prec);
+    end;
+  end
+  else
+  begin
+    pollmap.Delete(mapidx);
+  end;
 end;
 
 procedure TSocketWatcher.RemoveSocket(asock : TNanoSocket);
 begin
+  if asock.Socket = INVALID_SOCKET then EXIT;
+
+  RemoveFromWinFdSet(FReadFdSet,  asock.Socket);
+  RemoveFromWinFdSet(FWriteFDSet, asock.Socket);
+
+  //sockfdmap.Remove(asock.Socket);
 end;
+
+function TSocketWatcher.WaitForEvents(atimeout_ms : integer) : boolean;
+var
+  r : integer;
+begin
+  result := false;
+{
+  // timed wait for the response, letting the OS do something other
+  tv.tv_sec := atimeout_ms div 1000;
+  tv.tv_usec := (atimeout_ms mod 1000) * 1000;
+
+  r := select(FD_SETSIZE, @FReadFDSet, @FWriteFDSet, nil, @tv);
+
+  if r <= 0 then EXIT;
+
+  // process the reported events
+  for i := 0 to evcnt - 1 do
+  begin
+    pev := @FREvents[i];
+    sock := TNanoSocket(pev^.Data.ptr);
+    if (pev^.Events and EPOLLOUT) <> 0 then
+    begin
+      if sock.out_event_handler = nil
+      then
+          raise ENanoNet.Create('Socket has no output event handler!');
+
+      sock.out_event_handler(sock.obj_link);
+      result := true;
+    end;
+    if (pev^.Events and EPOLLIN) <> 0 then
+    begin
+      if sock.in_event_handler = nil
+      then
+          raise ENanoNet.Create('Socket has no input event handler!');
+
+      sock.in_event_handler(sock.obj_link);
+      result := true;
+    end;
+  end;
+}
+  result := true;
+end;
+
+{$endif}
 
 procedure TSocketWatcher.SetOutHandler(asock : TNanoSocket; aoutev : TOutEventHandler);
 begin
+  asock.out_event_handler := aoutev;
+  ModifySocket(asock);
 end;
 
 procedure TSocketWatcher.SetInHandler(asock : TNanoSocket; ainev : TOutEventHandler);
 begin
+  asock.in_event_handler := ainev;
+  ModifySocket(asock);
 end;
 
-function TSocketWatcher.WaitForEvents(atimeout_ms : integer) : boolean;
-begin
-  result := false;
-end;
-
-{$endif}
 
 { TSConnection }
 
