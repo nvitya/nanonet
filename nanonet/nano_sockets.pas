@@ -142,12 +142,9 @@ type
   TSocketWatcher = class  // for timed wait for read/write events
   protected
   {$ifdef WINDOWS}
-    // warning: the TFDSet is defined with fix amount of 64 sockets maximum
-    FReadFDSet  : TFDSet;
-    FWriteFDSet : TFDSet;
-
-    // these two must
-    sockmap  : TNanoSocketMap;
+    // on windows the WSAPoll will be used instead of select(), because is more effective
+    // (the IO completion ports perform better at very high number of sockets but work too much differently from linux (epoll))
+    sockmap  : TNanoSocketMap; // to search back the socket objects based on their socket id
     polllist : array of WSAPOLLFD;
 
     function FindPollIndex(asocket : TSocket) : integer;
@@ -671,59 +668,12 @@ end;
 
 {$ifdef WINDOWS}
 
-{ TWinPollMap }
-
-procedure AddToWinFdSet(var aset: TFDSet; asock: TSocket);
-var
-  i : integer;
-begin
-  for i := 0 to aset.fd_count - 1 do
-  begin
-    if aset.fd_array[i] = asock
-    then
-        EXIT;  // already present in the array
-  end;
-
-  if aset.fd_count < FD_SETSIZE then
-  begin
-    aset.fd_array[aset.fd_count] := asock;
-    Inc(aset.fd_count);
-  end;
-end;
-
-procedure RemoveFromWinFdSet(var aset: TFDSet; asock: TSocket);
-var
-  i, delcnt : integer;
-begin
-  i := 0;
-  delcnt := 0;
-  while i < aset.fd_count do
-  begin
-    if aset.fd_array[i] = asock then
-    begin
-      Inc(delcnt);
-    end
-    else
-    begin
-      if delcnt > 0 then
-      begin
-        aset.fd_array[i - delcnt] := aset.fd_array[i];
-      end;
-    end;
-    Inc(i);
-  end;
-  aset.fd_count -= delcnt;
-end;
-
 { TSocketWatcher }
 
 constructor TSocketWatcher.Create(amaxfds : integer);
 begin
   maxfds := amaxfds;
   maxevents := 32; // ok for smaller systems too
-
-  FD_ZERO(FReadFDSet);
-  FD_ZERO(FWriteFDSet);
 
   polllist := [];
   sockmap := TNanoSocketMap.Create(false);
@@ -840,8 +790,7 @@ begin
   end
   else
   begin
-    DeletePollRec(asock.Socket);
-    sockmap.Remove(asock.Socket);
+    RemoveSocket(asock);
   end;
 end;
 
@@ -849,10 +798,8 @@ procedure TSocketWatcher.RemoveSocket(asock : TNanoSocket);
 begin
   if asock.Socket = INVALID_SOCKET then EXIT;
 
-  RemoveFromWinFdSet(FReadFdSet,  asock.Socket);
-  RemoveFromWinFdSet(FWriteFDSet, asock.Socket);
-
-  //sockfdmap.Remove(asock.Socket);
+  DeletePollRec(asock.Socket);
+  sockmap.Remove(asock.Socket);
 end;
 
 function TSocketWatcher.WaitForEvents(atimeout_ms : integer) : boolean;
