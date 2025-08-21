@@ -13,7 +13,8 @@ program http_simple_server;
 {$mode objfpc}{$H+}
 
 uses
-  {$IFDEF UNIX} cthreads {$ENDIF}, SysUtils, baseunix, util_generic, nano_sockets, nano_http;
+  {$IFDEF UNIX} cthreads, baseunix, {$ENDIF}
+  SysUtils, util_generic, nano_sockets, nano_http;
 
 const
   http_listen_port = 8080;
@@ -72,7 +73,7 @@ begin
                  else response += 'Get var "c" is not set.'#13#10;
 
       pb := nil;
-      Writeln('this causes an exception:' , pb^);
+      //Writeln('this causes an exception:' , pb^);
 
       result := true;
       EXIT;

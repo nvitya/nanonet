@@ -103,7 +103,7 @@ var
   jfst : TJsonFileSessionStore;
 begin
   jfst := TJsonFileSessionStore.Create;
-  if jfst.Init(arootdir) then
+  if jfst.Init(arootdir, create_non_existing) then
   begin
     sessionstore := jfst;
     result := true;
@@ -244,7 +244,7 @@ begin
   if not DirectoryExists(s) then
   begin
     if not create_non_existing then EXIT;
-    CreateDir(s);
+    ForceDirectories(s);
   end;
   rootdir := IncludeTrailingBackslash(s);
   result := true;

@@ -626,6 +626,7 @@ begin
 
   eroot := ExcludeTrailingBackslash(ExpandFileName(arootdir));
   fpath := eroot + uri;
+  DoDirSeparators(fpath); // change the dir separators for windows when necessary
   //writeln('Requesting "', fpath, '"');
 
   if fpath <> ExpandFileName(fpath) then  // traversal attack with '../' parts ?

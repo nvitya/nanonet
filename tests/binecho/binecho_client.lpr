@@ -22,7 +22,7 @@ data:
 }
 
 uses
-  {$IFDEF UNIX} cthreads {$ENDIF}, SysUtils,
+  {$IFDEF UNIX} cthreads, {$ENDIF} SysUtils,
   nano_sockets, util_microtime;
 
 const
@@ -387,5 +387,9 @@ end;
 
 begin
   MainProc;
+  {$ifdef WINDOWS}
+    writeln('press enter to continue...');
+    readln;
+  {$endif}
 end.
 

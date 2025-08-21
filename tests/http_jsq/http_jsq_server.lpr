@@ -13,7 +13,7 @@ program http_jsq_server;
 {$mode objfpc}{$H+}
 
 uses
-  {$IFDEF UNIX} cthreads {$ENDIF}, baseunix,
+  {$IFDEF UNIX} cthreads, baseunix, {$ENDIF}
   SysUtils, DateUtils, sqlite3conn, db, sqldb, jsontools,
   util_generic, nano_sockets, nano_http, nano_jsq;
 

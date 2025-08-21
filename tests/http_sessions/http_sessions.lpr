@@ -12,7 +12,7 @@ program http_sessions;
 {$mode objfpc}{$H+}
 
 uses
-  {$IFDEF UNIX} cthreads {$ENDIF}, baseunix,
+  {$IFDEF UNIX} cthreads, baseunix, {$ENDIF}
   SysUtils, DateUtils, jsontools, util_generic,
   nano_sockets, nano_http, nano_sessions;
 

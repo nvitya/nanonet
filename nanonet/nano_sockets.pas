@@ -763,8 +763,8 @@ begin
     EXIT;
   end;
 
-  pend := @polllist[0];
-  inc(pend, length(polllist));
+  result := @polllist[0];
+  pend := result + length(polllist);
   while result < pend do
   begin
     if result^.fd = asockfd then EXIT;

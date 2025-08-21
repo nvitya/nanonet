@@ -13,7 +13,7 @@ program http_static_files;
 {$mode objfpc}{$H+}
 
 uses
-  {$IFDEF UNIX} cthreads {$ENDIF}, baseunix,
+  {$IFDEF UNIX} cthreads, baseunix, {$ENDIF}
   SysUtils, DateUtils, util_generic,
   nano_sockets, nano_http;
 

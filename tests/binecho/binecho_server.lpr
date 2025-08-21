@@ -21,7 +21,7 @@ data:
 }
 
 uses
-  {$IFDEF UNIX} cthreads {$ENDIF}, baseunix, nano_sockets;
+  {$IFDEF UNIX} cthreads, baseunix, {$ENDIF}  nano_sockets;
 
 type
 
