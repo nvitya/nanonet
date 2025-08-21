@@ -13,7 +13,7 @@ program udp_simple_client;
 {$mode objfpc}{$H+}
 
 uses
-  {$IFDEF UNIX} cthreads {$ENDIF}, SysUtils,
+  {$IFDEF UNIX} cthreads, {$ENDIF} SysUtils,
   nano_sockets, util_microtime;
 
 const
@@ -112,7 +112,6 @@ begin
   result := true;
 end;
 
-
 //--------------------------------------------------------------------------------
 
 procedure MainProc;
@@ -147,5 +146,9 @@ end;
 
 begin
   MainProc;
+{$ifdef WINDOWS}
+  writeln('press enter to continue...');
+  readln;
+{$endif}
 end.
 

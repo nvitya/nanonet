@@ -113,17 +113,15 @@ const
   POLLNVAL   = $0004;
 
 type
+  // Definitions for WSAPoll
+
   WSAPOLLFD = record
     fd       : TSocket;
-    events   : ShortInt;
-    revents  : ShortInt;
+    events   : uint16;
+    revents  : uint16;
   end;
 
   PWSAPOLLFD = ^WSAPOLLFD;
-
-  // use SELECT on windows
-
-  TWinPollMap = specialize TFPGMap<Pointer, WSAPOLLFD>;  // automatically frees the objects
 
   function WSAPoll(fds : PWSAPOLLFD; nfds : uint32; timeout : integer) : integer; stdcall; external 'ws2_32.dll';
 
@@ -139,6 +137,8 @@ type
 
 type
 
+  TNanoSocketMap = specialize TFPGMapObject<TSocket, TNanoSocket>;
+
   TSocketWatcher = class  // for timed wait for read/write events
   protected
   {$ifdef WINDOWS}
@@ -146,7 +146,13 @@ type
     FReadFDSet  : TFDSet;
     FWriteFDSet : TFDSet;
 
-    pollmap : TWinPollMap;
+    // these two must
+    sockmap  : TNanoSocketMap;
+    polllist : array of WSAPOLLFD;
+
+    function FindPollIndex(asocket : TSocket) : integer;
+    function GetPollRec(asockfd : TSocket) : PWSAPOLLFD;
+    procedure DeletePollRec(asockfd : TSocket);
 
   {$endif}
 
@@ -536,6 +542,8 @@ begin
   if result < 0 then result := -socketerror;
 end;
 
+{ TWinPollList }
+
 {$ifdef LINUX}
 
 { TSocketWatcher }
@@ -663,6 +671,8 @@ end;
 
 {$ifdef WINDOWS}
 
+{ TWinPollMap }
+
 procedure AddToWinFdSet(var aset: TFDSet; asock: TSocket);
 var
   i : integer;
@@ -715,13 +725,80 @@ begin
   FD_ZERO(FReadFDSet);
   FD_ZERO(FWriteFDSet);
 
-  pollmap := TWinPollMap.Create();
+  polllist := [];
+  sockmap := TNanoSocketMap.Create(false);
 end;
 
 destructor TSocketWatcher.Destroy;
 begin
-  pollmap.Free;
+  polllist := [];
+  sockmap.Free;
   inherited Destroy;
+end;
+
+function TSocketWatcher.FindPollIndex(asocket : TSocket) : integer;
+begin
+  result := 0;
+  while result < length(polllist) do
+  begin
+    if polllist[result].fd = asocket then EXIT;
+  end;
+  result := -1;
+end;
+
+function TSocketWatcher.GetPollRec(asockfd : TSocket) : PWSAPOLLFD;
+var
+  pend : PWSAPOLLFD;
+begin
+  result := nil;
+  if asockfd = INVALID_SOCKET then EXIT;
+
+  if length(polllist) < 1 then
+  begin
+    SetLength(polllist, 1);
+    result := @polllist[0];
+    result^.fd := asockfd;
+    result^.events := 0;
+    result^.revents := 0;
+    EXIT;
+  end;
+
+  pend := @polllist[0];
+  inc(pend, length(polllist));
+  while result < pend do
+  begin
+    if result^.fd = asockfd then EXIT;
+    Inc(result);
+  end;
+
+  // append a new
+  SetLength(polllist, length(polllist) + 1);
+  result := @polllist[length(polllist) - 1];
+  result^.fd := asockfd;
+  result^.events := 0;
+  result^.revents := 0;
+end;
+
+procedure TSocketWatcher.DeletePollRec(asockfd : TSocket);
+var
+  i : integer;
+  p, pend : PWSAPOLLFD;
+begin
+  if length(polllist) < 1 then EXIT;
+
+  i := 0;
+  p := @polllist[0];
+  pend := p + length(polllist);
+  while p < pend do
+  begin
+    if p^.fd = asockfd then
+    begin
+      delete(polllist, i, 1);
+      EXIT;
+    end;
+    Inc(p);
+    Inc(i);
+  end;
 end;
 
 procedure TSocketWatcher.AddSocket(asock : TNanoSocket; aobj_link : TObject; ainev : TInEventHandler; aoutev : TOutEventHandler);
@@ -739,48 +816,32 @@ end;
 
 procedure TSocketWatcher.ModifySocket(asock : TNanoSocket);
 var
-  prec  : WSAPOLLFD;
   pprec : PWSAPOLLFD;
-  mapidx : integer;
+  pollevents : uint16;
 begin
   if asock.Socket = INVALID_SOCKET then EXIT;
 
+  pollevents := 0;
   if asock.in_event_handler <> nil then
   begin
-    AddToWinFdSet(FReadFdSet, asock.Socket);
-  end
-  else
-  begin
-    RemoveFromWinFdSet(FReadFdSet, asock.Socket);
+    pollevents := (pollevents or POLLRDNORM);
   end;
 
   if asock.out_event_handler <> nil then
   begin
-    AddToWinFdSet(FWriteFDSet, asock.Socket);
-  end
-  else
-  begin
-    RemoveFromWinFdSet(FWriteFDSet, asock.Socket);
+    pollevents := (pollevents or POLLWRNORM);
   end;
-
-  if pollmap.Find(asock, mapidx) then mapidx := -1;
 
   if (asock.in_event_handler <> nil) or (asock.out_event_handler <> nil) then
   begin
-    if mapidx > 0 then
-    begin
-      //pprec := @WSAPOLLFD(pollmap.Data[mapidx]);
-    end
-    else
-    begin
-      prec.fd := asock.Socket;
-      pprec := @prec;
-      pollmap.Add(asock, prec);
-    end;
+    pprec := GetPollRec(asock.Socket); // allocates a new record when necessary
+    pprec^.Events := pollevents;
+    sockmap.Add(asock.socket, asock);
   end
   else
   begin
-    pollmap.Delete(mapidx);
+    DeletePollRec(asock.Socket);
+    sockmap.Remove(asock.Socket);
   end;
 end;
 
@@ -797,43 +858,45 @@ end;
 function TSocketWatcher.WaitForEvents(atimeout_ms : integer) : boolean;
 var
   r : integer;
+  pprec, pend : PWSAPOLLFD;
+  sock : TNanoSocket;
 begin
   result := false;
-{
-  // timed wait for the response, letting the OS do something other
-  tv.tv_sec := atimeout_ms div 1000;
-  tv.tv_usec := (atimeout_ms mod 1000) * 1000;
+  if length(polllist) < 1 then EXIT;
 
-  r := select(FD_SETSIZE, @FReadFDSet, @FWriteFDSet, nil, @tv);
-
+  pprec := @polllist[0];
+  r := WSAPoll(@polllist[0], Length(polllist), atimeout_ms);
   if r <= 0 then EXIT;
 
-  // process the reported events
-  for i := 0 to evcnt - 1 do
+  pend := pprec + length(polllist);
+  while pprec < pend do
   begin
-    pev := @FREvents[i];
-    sock := TNanoSocket(pev^.Data.ptr);
-    if (pev^.Events and EPOLLOUT) <> 0 then
+    if pprec^.revents <> 0 then
     begin
-      if sock.out_event_handler = nil
-      then
-          raise ENanoNet.Create('Socket has no output event handler!');
+      if sockmap.TryGetData(pprec^.fd, sock) then
+      begin
+        if (pprec^.revents and POLLWRNORM) <> 0 then
+        begin
+          if sock.out_event_handler = nil
+          then
+              raise ENanoNet.Create('Socket has no output event handler!');
 
-      sock.out_event_handler(sock.obj_link);
-      result := true;
-    end;
-    if (pev^.Events and EPOLLIN) <> 0 then
-    begin
-      if sock.in_event_handler = nil
-      then
-          raise ENanoNet.Create('Socket has no input event handler!');
+          sock.out_event_handler(sock.obj_link);
+          result := true;
+        end;
+        if (pprec^.revents and POLLRDNORM) <> 0 then
+        begin
+          if sock.in_event_handler = nil
+          then
+              raise ENanoNet.Create('Socket has no input event handler!');
 
-      sock.in_event_handler(sock.obj_link);
-      result := true;
+          sock.in_event_handler(sock.obj_link);
+          result := true;
+        end;
+      end;
     end;
+    Inc(pprec);
   end;
-}
-  result := true;
 end;
 
 {$endif}

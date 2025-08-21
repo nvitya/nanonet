@@ -60,8 +60,6 @@ procedure init_microtime();
 var
   freq : int64;
 begin
-  nstime_sys_offset := 0;
-
   freq := 0;
 	QueryPerformanceFrequency(freq);
 	qpcmsscale := 1000000 / freq;
